@@ -10,22 +10,19 @@ import tensorflow as tf
 
 import model, sample, encoder
 
-from runway import RunwayModel
+import runway
+from runway.data_types import number, text
 
 
-gtp2 = RunwayModel()
 sess = None
 
-@gtp2.setup
-def setup(alpha=0.5):
-
+@runway.setup(options={'seed': number(default=0, max=999)})
+def setup(opts):
     global sess
     global output
     global enc
     model_name='117M'
-    seed=None
-    nsamples=0
-    batch_size=1
+    seed=opts.get('seed', 0)
     length=None
     temperature=1
     top_k=0
@@ -39,36 +36,35 @@ def setup(alpha=0.5):
         hparams.override_from_dict(json.load(f))
 
     if length is None:
-        length = hparams.n_ctx
+        length = hparams.n_ctx // 2
     elif length > hparams.n_ctx:
         raise ValueError("Can't get samples longer than window size: %s" % hparams.n_ctx)
 
-    sess = tf.Session()#graph=tf.Graph())
+    sess = tf.Session()
+    context = tf.placeholder(tf.int32, [1, None])
     output = sample.sample_sequence(
-        hparams=hparams, length=length,
-        start_token=enc.encoder['<|endoftext|>'],
-        batch_size=batch_size,
-        temperature=temperature, top_k=top_k
-    )[:, 1:]
-    print('loading at batchsize',batch_size)
+        hparams=hparams, 
+        length=length,
+        context=context,
+        batch_size=1,
+        temperature=temperature,
+        top_k=top_k
+    )
     saver = tf.train.Saver()
     ckpt = tf.train.latest_checkpoint(os.path.join('models', model_name))
     saver.restore(sess, ckpt)
 
-    print('bottom1')
-    return sess
+    return sess, enc, context
 
 
-@gtp2.command('generate', inputs={'input': 'string'}, outputs={'output': 'string'})
-def generate(sess, inp):
-    input = inp['input']
-    print('generate from input', input)
-    out = sess.run(output)
-    text = enc.decode(out[0])
-    print('created text', text)
-    return dict(output=text)
-
+@runway.command('generate', inputs=[text(name='prompt')], outputs=[text])
+def generate(model, prompt):
+    sess, enc, context = model
+    context_tokens = enc.encode(prompt)
+    out = sess.run(output, feed_dict={context: [context_tokens]})[:, len(context_tokens):]
+    result = enc.decode(out[0])
+    return result
 
 
 if __name__ == '__main__':
-    gtp2.run()
+    runway.run()

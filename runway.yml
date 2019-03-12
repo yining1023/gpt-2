@@ -1,0 +1,4 @@
+python: 3.6
+cuda: 9.0
+entrypoint: python server.py
+framework: tensorflow
