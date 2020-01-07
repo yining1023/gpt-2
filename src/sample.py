@@ -40,7 +40,9 @@ def top_p_logits(logits, p):
     )
 
 
-def sample_sequence(*, hparams, length, start_token=None, batch_size=None, context=None, temperature=1, top_k=0, top_p=1):
+def sample_sequence(*, hparams, start_token=None, batch_size=None, context=None, temperature=1, top_k=0, top_p=1):
+    length_ph = tf.placeholder(tf.int32, shape=(), name='sample_length')
+
     if start_token is None:
         assert context is not None, 'Specify exactly one of start_token and context!'
     else:
@@ -78,7 +80,7 @@ def sample_sequence(*, hparams, length, start_token=None, batch_size=None, conte
 
         _, _, tokens = tf.while_loop(
             cond=cond, body=body,
-            maximum_iterations=length - 1,
+            maximum_iterations=length_ph - 1,
             loop_vars=[
                 past,
                 prev,
@@ -92,4 +94,4 @@ def sample_sequence(*, hparams, length, start_token=None, batch_size=None, conte
             back_prop=False,
         )
 
-        return tokens
+        return tokens, length_ph

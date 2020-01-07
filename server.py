@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import sys
 sys.path.insert(0, 'src')
 
@@ -11,28 +10,24 @@ import tensorflow as tf
 import model, sample, encoder
 
 import runway
-from runway.data_types import number, text
 
 
 sess = None
+g = None
 
-@runway.setup(options={'seed': number(default=0, max=999)})
+@runway.setup(options={'checkpoint_dir': runway.file(is_directory=True)})
 def setup(opts):
     global sess
     global output
     global enc
-    model_name='117M'
-    seed=opts.get('seed', 0)
+    global g
     length=None
     temperature=1
     top_k=0
 
-    np.random.seed(seed)
-    tf.set_random_seed(seed)
-
-    enc = encoder.get_encoder(model_name)
+    enc = encoder.get_encoder(opts['checkpoint_dir'])
     hparams = model.default_hparams()
-    with open(os.path.join('models', model_name, 'hparams.json')) as f:
+    with open(os.path.join(opts['checkpoint_dir'], 'hparams.json')) as f:
         hparams.override_from_dict(json.load(f))
 
     if length is None:
@@ -42,29 +37,43 @@ def setup(opts):
 
     sess = tf.Session()
     context = tf.placeholder(tf.int32, [1, None])
-    output = sample.sample_sequence(
-        hparams=hparams, 
-        length=length,
+    output, length_ph = sample.sample_sequence(
+        hparams=hparams,
         context=context,
         batch_size=1,
         temperature=temperature,
         top_k=top_k
     )
     saver = tf.train.Saver()
-    ckpt = tf.train.latest_checkpoint(os.path.join('models', model_name))
+    ckpt = tf.train.latest_checkpoint(opts['checkpoint_dir'])
     saver.restore(sess, ckpt)
 
-    return sess, enc, context
+    g = tf.get_default_graph()
+    g.finalize()
+    return sess, enc, context, length_ph
 
 
-@runway.command('generate', inputs=[text(name='prompt')], outputs=[text])
-def generate(model, prompt):
-    sess, enc, context = model
-    context_tokens = enc.encode(prompt)
-    out = sess.run(output, feed_dict={context: [context_tokens]})[:, len(context_tokens):]
-    result = enc.decode(out[0])
-    return result
+command_inputs = {
+    'prompt': runway.text,
+    'seed': runway.number(default=0, min=0, max=999, step=1),
+    'sequence_length': runway.number(default=128, min=1, max=256, step=1)
+}
+
+@runway.command('generate', inputs=command_inputs, outputs={'text': runway.text})
+def generate(model, inputs):
+    with g.as_default():
+        sess, enc, context, length_ph = model
+        seed = inputs['seed']
+        np.random.seed(seed)
+        tf.set_random_seed(seed)
+        context_tokens = enc.encode(inputs['prompt'])
+        out = sess.run(output, feed_dict={
+            context: [context_tokens],
+            length_ph: inputs['sequence_length']
+        })
+        result = enc.decode(out[0])
+        return result.split('<|endoftext|>')[0]
 
 
 if __name__ == '__main__':
-    runway.run()
+    runway.run(model_options={'checkpoint_dir': './models/1558M'})
