@@ -1,6 +1,7 @@
 python: 3.6
 cuda: 10.0
 entrypoint: python server.py
+training_entrypoint: python runway_train.py
 build_steps:
   - if_gpu: pip install tensorflow-gpu==1.15.0
   - if_cpu: pip install tensorflow==1.15.0
